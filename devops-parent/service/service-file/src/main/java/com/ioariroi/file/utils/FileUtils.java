@@ -16,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
 import java.net.MalformedURLException;
+import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
@@ -73,6 +74,23 @@ public class FileUtils {
             e.printStackTrace();
             return false;
         }
+    }
+
+    /**
+     * 把本地磁盤中的文件從局域網共享文件中刪除
+     *
+     * @param remoteFile
+     * @return
+     */
+    public static void removeDir(SmbFile remoteFile) throws SmbException {
+        System.out.println(remoteFile.getPath());
+        if (remoteFile.isDirectory()) {
+            SmbFile[] contents = remoteFile.listFiles();
+            for (SmbFile f : contents) {
+                removeDir(f);
+            }
+        }
+        remoteFile.delete();
     }
 
     public static SmbFile saveSMB(MultipartFile file, String smbfile, CIFSContext context) {

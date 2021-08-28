@@ -10,10 +10,7 @@ import jcifs.Configuration;
 import jcifs.config.PropertyConfiguration;
 import jcifs.context.BaseContext;
 import jcifs.context.SingletonContext;
-import jcifs.smb.NtlmPasswordAuthentication;
-import jcifs.smb.NtlmPasswordAuthenticator;
-import jcifs.smb.SmbFile;
-import jcifs.smb.SmbFileOutputStream;
+import jcifs.smb.*;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +21,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.FileCopyUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
@@ -85,17 +83,27 @@ public class FilesController {
         SmbFile smbFile = null;
         List<SmbEntity> smbEntities = new ArrayList<>();
         try {
-            String requestPath = "smb://" + hostname + "/";
-            requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path : requestPath;
+            String requestPath, basePath;
+            basePath = requestPath = "smb://" + hostname + "/";
+            requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path + "/" : requestPath;
+            System.out.println(requestPath);
             smbFile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
             SmbFile[] smbFiles = smbFile.listFiles();
 
             for (SmbFile tmpFile :
                     smbFiles) {
                 SmbEntity smbEntity = new SmbEntity();
-                smbEntity.setName(tmpFile.getName());
+                // 去除最後一個反斜線取得檔案名稱
+                if (tmpFile.getName().endsWith("/")) {
+                    smbEntity.setName(tmpFile.getName().substring(0, tmpFile.getName().length() - 1));
+                } else {
+                    smbEntity.setName(tmpFile.getName());
+                }
+                smbEntity.setSize(tmpFile.length());
                 smbEntity.setParent(tmpFile.getParent());
-                smbEntity.setPath(tmpFile.getPath());
+
+                smbEntity.setPath(tmpFile.getParent().substring(basePath.length()) + smbEntity.getName());
+
                 smbEntity.setCreateTime(tmpFile.createTime());
                 smbEntity.setLastAccess(tmpFile.lastAccess());
                 smbEntity.setLastModified(tmpFile.lastModified());
@@ -104,7 +112,7 @@ public class FilesController {
                 smbEntities.add(smbEntity);
             }
 
-            return R.ok().data("items", Arrays.asList(smbEntities));
+            return R.ok().data("items", smbEntities);
         } catch (MalformedURLException e) {
             e.printStackTrace();
         } catch (CIFSException e) {
@@ -112,6 +120,40 @@ public class FilesController {
         }
 
         return R.error();
+    }
+
+    @GetMapping(value = "/deleteRemoteFile")
+    public R deleteRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path) {
+        String requestPath = "smb://" + hostname + "/";
+        requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path + "/" : requestPath;
+
+        try {
+            SmbFile rmifile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
+            boolean result = FileUtils.removeFile(rmifile);
+
+            if (result) {
+                return R.ok();
+            } else {
+                return R.error().message("檔案刪除失敗");
+            }
+        } catch (MalformedURLException | CIFSException e) {
+            e.printStackTrace();
+            return R.error().message("檔案刪除失敗");
+        }
+    }
+
+    @GetMapping(value = "/deleteRemoteDir")
+    public R deleteRemoteDir(@RequestParam String hostname, @RequestParam String account, @RequestParam String path) {
+        String requestPath = "smb://" + hostname + "/";
+        requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path + "/" : requestPath;
+        try {
+            SmbFile rmifile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
+            FileUtils.removeDir(rmifile);
+        } catch (CIFSException | MalformedURLException e) {
+            e.printStackTrace();
+            return R.error().message("檔案刪除失敗");
+        }
+        return R.ok();
     }
 
     @PostMapping(value = "/uploadRemoteFile")
@@ -139,7 +181,7 @@ public class FilesController {
         boolean result = FileUtils.removeFile(smbFile);
     }
 
-    @PostMapping(value = "/downloadRemoteFile", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    @GetMapping(value = "/downloadRemoteFile", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<StreamingResponseBody> downloadRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path) {
         String fileName = "";
 
@@ -168,7 +210,11 @@ public class FilesController {
                 }
             };
             return ResponseEntity.ok()
-                    .header("Content-Disposition", "attachment;filename*=utf-8'zh_TW'" + URLEncoder.encode(fileName, "UTF-8").replaceAll("\\+", "%20"))
+                    .header("Content-Disposition", "attachment;" +
+                            "filename*=utf-8'zh_TW'" + URLEncoder.encode(fileName, "UTF-8").replaceAll("\\+", "%20"))
+                    .header("requestType","file") // 自定义的header
+                    .header("Access-Control-Expose-Headers", "requestType") //设置这个header 可见
+                    .header("Access-Control-Expose-Headers", "Content-Disposition") //设置这个header 可见
                     .body(body);
         } catch (IOException e) {
             e.printStackTrace();
@@ -177,14 +223,14 @@ public class FilesController {
     }
 
     @PostMapping(value = "/downloadZipRemoteFile")
-    public ResponseEntity<StreamingResponseBody> downloadZipRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path, @RequestParam(value="isDirectory", required = false, defaultValue = "false") Boolean isDirectory) {
+    public ResponseEntity<StreamingResponseBody> downloadZipRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path, @RequestParam(value = "isDirectory", required = false, defaultValue = "false") Boolean isDirectory) {
         String fileName = "";
 
         try {
             String requestPath = "smb://" + hostname + "/";
             SmbFile rmifile = null;
             String targetPath = null;
-            if(!isDirectory) {
+            if (!isDirectory) {
                 fileName = FilenameUtils.getName(path);
 
                 requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path : requestPath;
@@ -193,8 +239,7 @@ public class FilesController {
                 rmifile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
                 targetPath = rmifile.getParent() + FilenameUtils.removeExtension(fileName) + ".zip";
                 System.out.println(targetPath);
-            }
-            else{
+            } else {
                 // 取得最後一個斜線前的資料夾名稱
                 if (StringUtils.isNoneEmpty(path) && path.charAt(path.length() - 1) == '/') {
                     fileName = path.substring(0, path.length() - 1);
