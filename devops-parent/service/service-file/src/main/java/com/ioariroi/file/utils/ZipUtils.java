@@ -2,6 +2,7 @@ package com.ioariroi.file.utils;
 
 import jcifs.CIFSContext;
 import jcifs.CIFSException;
+import jcifs.CloseableIterator;
 import jcifs.Configuration;
 import jcifs.config.PropertyConfiguration;
 import jcifs.context.BaseContext;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component;
 import java.io.*;
 import java.net.MalformedURLException;
 import java.net.UnknownHostException;
+import java.util.List;
 import java.util.Properties;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -36,7 +38,7 @@ public class ZipUtils {
 
     private static final Logger log = LoggerFactory.getLogger(ZipUtils.class);
 
-    private ZipUtils() {
+    public ZipUtils() {
     }
 
     public static SmbFile unzipSmbZip(String sourcePath, String unzipPath, CIFSContext context) {
@@ -146,28 +148,63 @@ public class ZipUtils {
         return smbFile;
     }
 
+    public static SmbFile createSmbZipFromMultiSrc(List<String> sourcePaths, String zipPath, CIFSContext context) throws IOException {
+        SmbFileOutputStream fos = null;
+        ZipArchiveOutputStream zos = null;
+        SmbFile smbFile = null;
+        try {
+            smbFile = new SmbFile(zipPath, context);
+            fos = new SmbFileOutputStream(smbFile);
+            zos = new ZipArchiveOutputStream(fos);
+            // zos.setEncoding("ms950");
+            for (String sourcePath : sourcePaths) {
+                writeSmbZip(new SmbFile(sourcePath, context), "", zos);
+            }
+            zos.closeArchiveEntry();
+            zos.flush();
+            zos.finish();
+        } finally {
+            try {
+                if (zos != null) {
+                    zos.close();
+                }
+            } catch (IOException e) {
+                log.error("创建ZIP文件失败", e);
+            }
+
+        }
+
+        return smbFile;
+    }
+
     private static void writeSmbZip(SmbFile smbFile, String parentPath, ZipArchiveOutputStream zos) {
         try {
             if (smbFile.exists()) {
                 if (smbFile.isDirectory()) {//处理文件夹
                     parentPath += smbFile.getName();
-                    SmbFile[] smbFiles = smbFile.listFiles();
-                    for (SmbFile f : smbFiles) {
-                        System.out.println(f.getName());
-                        System.out.println(f.getPath());
-                        System.out.println(f.getParent());
-                        writeSmbZip(f, parentPath, zos);
+                    System.out.println("parentPath: " + parentPath);
+                    // 獲取資料夾下的所有子檔案
+                    CloseableIterator ci = smbFile.children();
+//                    SmbFile[] smbFiles = smbFile.listFiles();
+                    while (ci.hasNext()) {
+                        SmbFile childrenFile = (SmbFile) ci.next();
+                        System.out.println("childrenFile: " + childrenFile.getName());
+//                        System.out.println(f.getPath());
+//                        System.out.println(f.getParent());
+                        writeSmbZip(childrenFile, parentPath, zos);
                     }
                 } else {
                     SmbFileInputStream fis = null;
                     DataInputStream dis = null;
                     try {
-                        System.out.println(smbFile.getName());
+                        System.out.println("檔案名稱: " + smbFile.getName());
+                        System.out.println("路徑名稱: " + smbFile.getPath());
+                        System.out.println("父目錄名稱: " + smbFile.getParent());
                         fis = new SmbFileInputStream(smbFile);
                         dis = new DataInputStream(new BufferedInputStream(fis));
                         ZipArchiveEntry ze = new ZipArchiveEntry(filter(parentPath + smbFile.getName()));
                         ze.setTime(smbFile.lastModified());
-                        System.out.println(parentPath + smbFile.getName());
+                        System.out.println("realfilePath: " + parentPath + smbFile.getName());
                         zos.putArchiveEntry(ze);
                         byte[] content = new byte[1024];
                         int len;
@@ -191,6 +228,8 @@ public class ZipUtils {
             }
         } catch (SmbException e) {
             // TODO Auto-generated catch block
+            e.printStackTrace();
+        } catch (CIFSException e) {
             e.printStackTrace();
         }
     }

@@ -46,5 +46,53 @@ export default {
       },
       params: { hostname: 'localhost', account: 'Bryan', path: path }
     })
+  },
+  // 壓縮遠端檔案並下載
+  downloadZipRemoteFile(path) {
+    return request({
+      url: `/file/downloadZipRemoteFile`,
+      method: 'get',
+      responseType: 'blob',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      params: { hostname: 'localhost', account: 'Bryan', path: path }
+    })
+  },
+  // 壓縮遠端多個檔案及目錄並下載
+  downloadZipRemoteMultiFile(path, smbEntities) {
+    return request({
+      url: `/file/downloadZipRemoteMultiFile`,
+      method: 'post',
+      responseType: 'blob',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      data: { hostname: 'localhost', account: 'Bryan', path: path, smbEntities: smbEntities }
+    })
+  },
+  // 創建檔案
+  createRemoteFile(path) {
+    return request({
+      url: `/file/createRemoteFile`,
+      method: 'get',
+      params: { hostname: 'localhost', account: 'Bryan', path: path }
+    })
+  },
+  // 創建目錄
+  createRemoteDir(path) {
+    return request({
+      url: `/file/createRemoteDir`,
+      method: 'get',
+      params: { hostname: 'localhost', account: 'Bryan', path: path }
+    })
+  },
+  // 上傳檔案
+  uploadRemoteFile(form) {
+    return request({
+      url: `/file/uploadRemoteFile`,
+      method: 'post',
+      data: form
+    })
   }
 }

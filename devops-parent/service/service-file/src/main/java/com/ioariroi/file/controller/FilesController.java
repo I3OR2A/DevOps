@@ -1,15 +1,12 @@
 package com.ioariroi.file.controller;
 
 import com.ioariroi.commonutils.R;
+import com.ioariroi.file.entity.SmbEntityQuery;
 import com.ioariroi.file.entity.SmbEntity;
 import com.ioariroi.file.utils.FileUtils;
 import com.ioariroi.file.utils.ZipUtils;
-import jcifs.CIFSContext;
 import jcifs.CIFSException;
-import jcifs.Configuration;
-import jcifs.config.PropertyConfiguration;
-import jcifs.context.BaseContext;
-import jcifs.context.SingletonContext;
+import jcifs.CloseableIterator;
 import jcifs.smb.*;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -18,8 +15,6 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
-import org.springframework.util.FileCopyUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
@@ -33,10 +28,8 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Properties;
+import java.text.SimpleDateFormat;
+import java.util.*;
 
 @CrossOrigin //跨域
 @RestController
@@ -88,10 +81,14 @@ public class FilesController {
             requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path + "/" : requestPath;
             System.out.println(requestPath);
             smbFile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
-            SmbFile[] smbFiles = smbFile.listFiles();
+            // 獲取資料夾下的所有子檔案
+            CloseableIterator ci = smbFile.children();
+            // SmbFile[] smbFiles = smbFile.listFiles();
 
-            for (SmbFile tmpFile :
-                    smbFiles) {
+            while (ci.hasNext()) {
+                SmbFile tmpFile = (SmbFile) ci.next();
+                if (tmpFile.isHidden()) continue;
+
                 SmbEntity smbEntity = new SmbEntity();
                 // 去除最後一個反斜線取得檔案名稱
                 if (tmpFile.getName().endsWith("/")) {
@@ -112,7 +109,7 @@ public class FilesController {
                 smbEntities.add(smbEntity);
             }
 
-            return R.ok().data("items", smbEntities);
+            return R.ok().data("items", smbEntities).data("total", smbEntities.size());
         } catch (MalformedURLException e) {
             e.printStackTrace();
         } catch (CIFSException e) {
@@ -122,10 +119,44 @@ public class FilesController {
         return R.error();
     }
 
+    @GetMapping(value = "/createRemoteFile")
+    public R createRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path) {
+        String requestPath = "smb://" + hostname + "/";
+        requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path : requestPath;
+        System.out.println("createRemoteFile: " + requestPath);
+
+        try {
+            SmbFile rmifile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
+            if (!rmifile.exists() || (rmifile.exists() && rmifile.isDirectory()))
+                rmifile.createNewFile();
+        } catch (MalformedURLException | CIFSException e) {
+            e.printStackTrace();
+            return R.error().message("檔案新增失敗");
+        }
+        return R.ok();
+    }
+
+    @GetMapping(value = "/createRemoteDir")
+    public R createRemoteDir(@RequestParam String hostname, @RequestParam String account, @RequestParam String path) {
+        String requestPath = "smb://" + hostname + "/";
+        requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path + "/" : requestPath;
+        System.out.println("createRemoteDir: " + requestPath);
+
+        try {
+            SmbFile rmifile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
+            if (!rmifile.exists() || (rmifile.exists() && rmifile.isFile()))
+                rmifile.mkdirs();
+        } catch (MalformedURLException | CIFSException e) {
+            e.printStackTrace();
+            return R.error().message("目錄新增失敗");
+        }
+        return R.ok();
+    }
+
     @GetMapping(value = "/deleteRemoteFile")
     public R deleteRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path) {
         String requestPath = "smb://" + hostname + "/";
-        requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path + "/" : requestPath;
+        requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path : requestPath;
 
         try {
             SmbFile rmifile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
@@ -157,12 +188,18 @@ public class FilesController {
     }
 
     @PostMapping(value = "/uploadRemoteFile")
-    public void uploadRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path, @RequestParam("file") MultipartFile file) throws IOException {
+    public R uploadRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path, @RequestParam("file") MultipartFile file) {
         String requestPath = "smb://" + hostname + "/";
         requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path + "/" : requestPath;
         requestPath = requestPath + file.getOriginalFilename();
         System.out.println(requestPath);
-        SmbFile smbFile = FileUtils.saveSMB(file, requestPath, FileUtils.getAuth(null, username, password));
+        try {
+            SmbFile smbFile = FileUtils.saveSMB(file, requestPath, FileUtils.getAuth(null, username, password));
+        } catch (CIFSException e) {
+            e.printStackTrace();
+            return R.error();
+        }
+        return R.ok();
     }
 
     @PostMapping(value = "/uploadRemoteFileAndUnzip")
@@ -209,12 +246,27 @@ public class FilesController {
                     System.out.println("使用时间" + userTime);
                 }
             };
+
+//            //处理文件名有中文问题
+//            if (request.getHeader("User-Agent").toUpperCase().indexOf("MSIE") > 0) {
+//                fileName= URLEncoder.encode(fileName,"UTF-8");
+//            } else {
+//                fileName= new String(fileName.getBytes(),"ISO-8859-1");
+//            }
+//
+//            return ResponseEntity.ok()
+//                    .header("Content-Disposition","attachment;filename=\""+fileName+"\"") // 内容描述
+//                    .header("requestType","file") // 自定义的header
+//                    .header("Access-Control-Expose-Headers", "requestType") // 列表哪些header可以作为响应的一部分暴露给外部（除了默认的七种，其他的是不暴露给外部的）
+//                    .header("Access-Control-Expose-Headers", "Content-Disposition") // 列表哪些header可以作为响应的一部分暴露给外部（除了默认的七种，其他的是不暴露给外部的）
+//                    .body(body);
+
             return ResponseEntity.ok()
-                    .header("Content-Disposition", "attachment;" +
-                            "filename*=utf-8'zh_TW'" + URLEncoder.encode(fileName, "UTF-8").replaceAll("\\+", "%20"))
-                    .header("requestType","file") // 自定义的header
-                    .header("Access-Control-Expose-Headers", "requestType") //设置这个header 可见
-                    .header("Access-Control-Expose-Headers", "Content-Disposition") //设置这个header 可见
+                    .header("Content-Disposition", "attachment;filename=" + URLEncoder.encode(fileName, "UTF-8").replaceAll("\\+", "%20"))
+                    //";filename*=UTF-8" + URLEncoder.encode(fileName, "UTF-8").replaceAll("\\+", "%20")) // 内容描述
+                    .header("requestType", "file") // 自定义的header
+                    .header("Access-Control-Expose-Headers", "requestType") // 列表哪些header可以作为响应的一部分暴露给外部（除了默认的七种，其他的是不暴露给外部的）
+                    .header("Access-Control-Expose-Headers", "Content-Disposition") // 列表哪些header可以作为响应的一部分暴露给外部（除了默认的七种，其他的是不暴露给外部的）
                     .body(body);
         } catch (IOException e) {
             e.printStackTrace();
@@ -222,36 +274,111 @@ public class FilesController {
         return ResponseEntity.notFound().build();
     }
 
-    @PostMapping(value = "/downloadZipRemoteFile")
-    public ResponseEntity<StreamingResponseBody> downloadZipRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path, @RequestParam(value = "isDirectory", required = false, defaultValue = "false") Boolean isDirectory) {
+    @PostMapping(value = "/downloadZipRemoteMultiFile")
+    public ResponseEntity<StreamingResponseBody> downloadZipRemoteMultiFile(@RequestBody SmbEntityQuery smbEntityQuery) {
+
+
+        String fileName = "";
+
+        try {
+            String requestPath = "smb://" + smbEntityQuery.getHostname() + "/";
+            SmbFile rmifile = null;
+            String targetPath = null;
+//            if (!isDirectory) {
+//                fileName = FilenameUtils.getName(path);
+//
+//            } else {
+//                // 取得最後一個斜線前的資料夾名稱
+//                if (StringUtils.isNoneEmpty(path) && path.charAt(path.length() - 1) == '/') {
+//                    fileName = path.substring(0, path.length() - 1);
+//                }
+//                fileName = FilenameUtils.getName(fileName);
+//
+//            }
+            // 獲取當前要壓縮檔案和目錄SmbFile實例
+            List<SmbFile> smbFiles = new ArrayList<SmbFile>();
+            for (SmbEntity smbEntity : smbEntityQuery.getSmbEntities()) {
+                System.out.println("Name: " + smbEntity.getName());
+                String tmpPath = smbEntity.isDirectory() ? requestPath + smbEntity.getPath() + "/" : requestPath + smbEntity.getPath();
+                SmbFile smbFile = new SmbFile(tmpPath, FileUtils.getAuth(null, username, password));
+                smbFiles.add(smbFile);
+            }
+
+            fileName = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()) + ".zip";
+            requestPath = StringUtils.isNoneEmpty(smbEntityQuery.getPath()) ? requestPath + smbEntityQuery.getPath() + "/" : requestPath;
+            System.out.println("requestPath: " + requestPath);
+            rmifile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
+            targetPath = rmifile.getParent() + fileName;
+            System.out.println("targetPath: " + targetPath);
+
+            List<String> sourcePaths = new ArrayList<String>();
+            for (SmbFile smbFile : smbFiles) {
+                System.out.println("Current: " + smbFile.getPath());
+                sourcePaths.add(smbFile.getPath());
+            }
+            SmbFile resultSmbFile = ZipUtils.createSmbZipFromMultiSrc(sourcePaths, targetPath, FileUtils.getAuth(null, username, password));
+
+            StreamingResponseBody body = new StreamingResponseBody() {
+                @Override
+                public void writeTo(OutputStream outputStream) throws IOException {
+                    int len;
+                    long startTime = System.currentTimeMillis();
+                    InputStream fis = resultSmbFile.getInputStream();
+
+                    byte[] content = new byte[1024];
+                    while ((len = fis.read(content, 0, content.length)) != -1) {
+                        outputStream.write(content, 0, len);
+                    }
+                    outputStream.flush();
+                    fis.close();
+                    long userTime = System.currentTimeMillis() - startTime;
+
+                    System.out.println("使用时间" + userTime);
+
+                    // 刪除遠程壓縮檔
+                    boolean result = FileUtils.removeFile(resultSmbFile);
+                }
+            };
+            return ResponseEntity.ok()
+                    .header("Content-Disposition", "attachment;filename=" + URLEncoder.encode(fileName, "UTF-8").replaceAll("\\+", "%20"))
+                    //";filename*=UTF-8" + URLEncoder.encode(fileName, "UTF-8").replaceAll("\\+", "%20")) // 内容描述
+                    .header("requestType", "file") // 自定义的header
+                    .header("Access-Control-Expose-Headers", "requestType") // 列表哪些header可以作为响应的一部分暴露给外部（除了默认的七种，其他的是不暴露给外部的）
+                    .header("Access-Control-Expose-Headers", "Content-Disposition") // 列表哪些header可以作为响应的一部分暴露给外部（除了默认的七种，其他的是不暴露给外部的）
+                    .body(body);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return ResponseEntity.notFound().build();
+    }
+
+    @GetMapping(value = "/downloadZipRemoteFile")
+//    public ResponseEntity<StreamingResponseBody> downloadZipRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path, @RequestParam(value = "isDirectory", required = false, defaultValue = "false") Boolean isDirectory) {
+    public ResponseEntity<StreamingResponseBody> downloadZipRemoteFile(@RequestParam String hostname, @RequestParam String account, @RequestParam String path) {
         String fileName = "";
 
         try {
             String requestPath = "smb://" + hostname + "/";
             SmbFile rmifile = null;
             String targetPath = null;
-            if (!isDirectory) {
-                fileName = FilenameUtils.getName(path);
-
-                requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path : requestPath;
-                System.out.println(requestPath);
-
-                rmifile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
-                targetPath = rmifile.getParent() + FilenameUtils.removeExtension(fileName) + ".zip";
-                System.out.println(targetPath);
-            } else {
-                // 取得最後一個斜線前的資料夾名稱
-                if (StringUtils.isNoneEmpty(path) && path.charAt(path.length() - 1) == '/') {
-                    fileName = path.substring(0, path.length() - 1);
-                }
-                fileName = FilenameUtils.getName(fileName);
-                requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path : requestPath;
-                System.out.println(requestPath);
-
-                rmifile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
-                targetPath = rmifile.getParent() + FilenameUtils.removeExtension(fileName) + ".zip";
-                System.out.println(targetPath);
-            }
+//            if (!isDirectory) {
+//                fileName = FilenameUtils.getName(path);
+//
+//            } else {
+//                // 取得最後一個斜線前的資料夾名稱
+//                if (StringUtils.isNoneEmpty(path) && path.charAt(path.length() - 1) == '/') {
+//                    fileName = path.substring(0, path.length() - 1);
+//                }
+//                fileName = FilenameUtils.getName(fileName);
+//
+//            }
+            fileName = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()) + ".zip";
+            requestPath = StringUtils.isNoneEmpty(path) ? requestPath + path + "/" : requestPath;
+            System.out.println("requestPath: " + requestPath);
+            rmifile = new SmbFile(requestPath, FileUtils.getAuth(null, username, password));
+            targetPath = rmifile.getParent() + fileName;
+            System.out.println("targetPath: " + targetPath);
             SmbFile smbFile = ZipUtils.createSmbZip(rmifile.getPath(), targetPath, FileUtils.getAuth(null, username, password));
 
             StreamingResponseBody body = new StreamingResponseBody() {
@@ -276,7 +403,11 @@ public class FilesController {
                 }
             };
             return ResponseEntity.ok()
-                    .header("Content-Disposition", "attachment;filename*=utf-8'zh_TW'" + URLEncoder.encode(FilenameUtils.removeExtension(fileName) + ".zip", "UTF-8").replaceAll("\\+", "%20"))
+                    .header("Content-Disposition", "attachment;filename=" + URLEncoder.encode(fileName, "UTF-8").replaceAll("\\+", "%20"))
+                    //";filename*=UTF-8" + URLEncoder.encode(fileName, "UTF-8").replaceAll("\\+", "%20")) // 内容描述
+                    .header("requestType", "file") // 自定义的header
+                    .header("Access-Control-Expose-Headers", "requestType") // 列表哪些header可以作为响应的一部分暴露给外部（除了默认的七种，其他的是不暴露给外部的）
+                    .header("Access-Control-Expose-Headers", "Content-Disposition") // 列表哪些header可以作为响应的一部分暴露给外部（除了默认的七种，其他的是不暴露给外部的）
                     .body(body);
 
         } catch (IOException e) {
