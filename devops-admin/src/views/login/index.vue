@@ -109,6 +109,9 @@ export default {
       this.$refs.loginForm.validate(valid => {
         if (valid) {
           this.loading = true
+          const form = new FormData()
+          form.append('username', 'admin')
+          form.append('password', '111111')
           this.$store.dispatch('user/login', this.loginForm).then(() => {
             this.$router.push({ path: this.redirect || '/' })
             this.loading = false
