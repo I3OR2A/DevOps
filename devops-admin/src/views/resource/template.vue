@@ -64,8 +64,9 @@
               show-overflow-tooltip
             >
               <template slot-scope="scope">
-                <el-button size="mini" type="primary" icon="el-icon-view" @click="editTemplate(scope.row.path)" />
-                <el-button size="mini" type="danger" icon="el-icon-delete" @click="deleteTemplate(scope.row.path)" />
+                <el-button size="mini" type="text" @click="editTemplate(scope.row.path)">編輯</el-button>
+                <el-divider direction="vertical" />
+                <el-button size="mini" type="text" @click="deleteTemplate(scope.row.path)">刪除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -82,7 +83,14 @@
           <el-input autocomplete="off" />
         </el-form-item>
         <el-form-item label="模板内容" required :label-width="formLabelWidth">
-          <el-input autocomplete="off" />
+          <editor
+            v-model="content"
+            lang="json"
+            :options="editorOptions"
+            theme="chrome"
+            height="300"
+            @init="editorInit"
+          />
         </el-form-item>
         <el-form-item label="备注信息" :label-width="formLabelWidth">
           <el-input
@@ -102,9 +110,24 @@
 </template>
 
 <script>
+
 export default {
+  components: {
+    editor: require('vue2-ace-editor')
+  },
   data() {
     return {
+      input: '',
+      content: '',
+      editorOptions: {
+        // 设置代码编辑器的样式
+        enableBasicAutocompletion: true,
+        enableSnippets: true,
+        enableLiveAutocompletion: true,
+        tabSize: 2,
+        fontSize: 12,
+        showPrintMargin: false // 去除编辑器里的竖线
+      },
       options: [{
         value: '1',
         label: '测试'
@@ -133,6 +156,16 @@ export default {
         content: 'uname -a',
         description: ''
       }]
+    }
+  },
+  methods: {
+    editorInit: function(editor) {
+      require('brace/theme/chrome')
+      require('brace/ext/language_tools') // language extension prerequsite...
+      require('brace/mode/yaml')
+      require('brace/mode/json')
+      require('brace/mode/less')
+      require('brace/snippets/json')
     }
   }
 }
