@@ -91,7 +91,7 @@
         <el-form-item required label="主机类别" :label-width="formLabelWidth">
           <el-form :inline="true">
             <el-form-item>
-              <el-select v-model="value" placeholder="请选择">
+              <el-select v-model="hostInfo.typeId" placeholder="请选择">
                 <el-option
                   v-for="item in options"
                   :key="item.value"
@@ -110,10 +110,10 @@
 
         </el-form-item>
         <el-form-item required label="主机别名" :label-width="formLabelWidth">
-          <el-input v-model="input" placeholder="请输入" />
+          <el-input v-model="hostInfo.hostname" placeholder="请输入" />
         </el-form-item>
         <el-form-item required label="连接地址" :label-width="formLabelWidth">
-          <el-input v-model="input" placeholder="请输入" />
+          <el-input v-model="hostInfo.ipAddress" placeholder="请输入" />
         </el-form-item>
         <el-form-item label="独立密钥" :label-width="formLabelWidth">
           <el-button icon="el-icon-plus">點擊上傳</el-button><br>
@@ -121,7 +121,7 @@
         </el-form-item>
         <el-form-item label="备注信息" :label-width="formLabelWidth">
           <el-input
-            v-model="textarea"
+            v-model="hostInfo.remark"
             type="textarea"
             :rows="2"
             placeholder="请输入模板备注信息"
@@ -169,9 +169,19 @@
 </template>
 
 <script>
+import hostApi from '@/api/host/host'
+
 export default {
   data() {
     return {
+      hostInfo: {
+        typeId: 1,
+        hostname: '',
+        ipAddress: '',
+        port: 1,
+        remark: '',
+        updateUser: 1
+      },
       dialogBatchVisible: false,
       dialogFormVisible: false,
       formLabelWidth: '120px',
@@ -210,6 +220,52 @@ export default {
         port: '2201',
         remark: ''
       }]
+    }
+  },
+  methods: {
+    // 添加主機方法
+    addHost() {
+      hostApi
+        .addHost(this.hostInfo)
+        .then((response) => {
+          // 添加成功
+          // 提示信息
+          this.$message({
+            type: 'success',
+            message: '添加成功!'
+          })
+          // 回到列表页面  路由跳转
+          this.$router.push({ path: '/resource/list' })
+        })
+    },
+    // 根据主機id查询的方法
+    getHost(id) {
+      hostApi.getHost(id).then((response) => {
+        this.hostInfo = response.data.hostInfo
+      })
+    },
+    addOrUpdate() {
+      // 判断修改还是添加
+      // 根据host是否有id
+      if (!this.hostInfo.id) {
+        // 添加
+        this.addHost()
+      } else {
+        // 修改
+        this.updateHost()
+      }
+    },
+    // 修改主機方法
+    updateHost() {
+      hostApi.updateHost(this.hostInfo).then((response) => {
+        // 提示信息
+        this.$message({
+          type: 'success',
+          message: '修改成功!'
+        })
+        // 回到列表页面  路由跳转
+        this.$router.push({ path: '/resource/list' })
+      })
     }
   }
 }

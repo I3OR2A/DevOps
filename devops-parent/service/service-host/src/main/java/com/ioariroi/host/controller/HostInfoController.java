@@ -27,14 +27,16 @@ public class HostInfoController {
     @Autowired
     private HostInfoService hostInfoService;
 
-    @GetMapping
-    public List<HostInfo> list() {
-        return hostInfoService.list(null);
+    @ApiOperation(value = "所有主機列表")
+    @GetMapping("findAll")
+    public R findAll() {
+        List<HostInfo> list = hostInfoService.list(null);
+        return R.ok().data("item", list);
     }
 
     @ApiOperation(value = "新增主機")
-    @PostMapping
-    public R save(
+    @PostMapping("addHost")
+    public R addHost(
             @ApiParam(name = "hostInfo", value = "主機对象", required = true)
             @RequestBody HostInfo hostInfo) {
 
@@ -43,8 +45,8 @@ public class HostInfoController {
     }
 
     @ApiOperation(value = "根据ID查询主機")
-    @GetMapping("{id}")
-    public R getById(
+    @GetMapping("getHost/{id}")
+    public R getHost(
             @ApiParam(name = "id", value = "主機ID", required = true)
             @PathVariable String id) {
 
@@ -53,12 +55,12 @@ public class HostInfoController {
     }
 
     @ApiOperation(value = "根据ID修改主機")
-    @PutMapping("{id}")
-    public R updateById(
-            @ApiParam(name = "id", value = "讲师ID", required = true)
+    @PutMapping("updateHost/{id}")
+    public R updateHost(
+            @ApiParam(name = "id", value = "主機ID", required = true)
             @PathVariable Long id,
 
-            @ApiParam(name = "teacher", value = "讲师对象", required = true)
+            @ApiParam(name = "hostInfo", value = "主機对象", required = true)
             @RequestBody HostInfo hostInfo) {
 
         hostInfo.setId(id);
@@ -66,8 +68,9 @@ public class HostInfoController {
         return R.ok();
     }
 
-    @DeleteMapping("{id}")
-    public boolean removeById(@PathVariable String id){
+    @ApiOperation(value = "逻辑删除主機")
+    @DeleteMapping("deleteHost/{id}")
+    public boolean deleteHost(@PathVariable String id){
         return hostInfoService.removeById(id);
     }
 
@@ -90,15 +93,15 @@ public class HostInfoController {
 //    }
 
     @ApiOperation(value = "分页主機列表")
-    @GetMapping("{page}/{limit}")
-    public R pageQuery(
+    @GetMapping("pageHostCondition/{page}/{limit}")
+    public R pageHostCondition(
             @ApiParam(name = "page", value = "当前页码", required = true)
             @PathVariable Long page,
 
             @ApiParam(name = "limit", value = "每页记录数", required = true)
             @PathVariable Long limit,
 
-            @ApiParam(name = "teacherQuery", value = "查询对象", required = false)
+            @ApiParam(name = "hostInfoQuery", value = "查询对象", required = false)
                     HostInfoQuery hostInfoQuery){
 
         Page<HostInfo> pageParam = new Page<>(page, limit);
