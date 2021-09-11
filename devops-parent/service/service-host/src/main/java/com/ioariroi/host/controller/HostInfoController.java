@@ -23,6 +23,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/host/host-info")
+@CrossOrigin  //解决跨域
 public class HostInfoController {
     @Autowired
     private HostInfoService hostInfoService;

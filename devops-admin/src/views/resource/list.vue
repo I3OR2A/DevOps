@@ -36,14 +36,14 @@
       <el-row :gutter="20">
         <el-col :span="24">
           <el-table
-            :data="tableData"
+            :data="list"
             border
             resizable
             tooltip-effect="dark"
             style="width: 100%"
           >
             <el-table-column
-              prop="type"
+              prop="typeId"
               label="类别"
               width="180"
               sortable
@@ -55,7 +55,7 @@
               sortable
             />
             <el-table-column
-              prop="address"
+              prop="ipAddress"
               label="連接地址"
               width="180"
               sortable
@@ -132,7 +132,7 @@
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button @click="dialogFormVisible = false">取 消</el-button>
-        <el-button type="primary" @click="dialogFormVisible = false">驗 證</el-button>
+        <el-button type="primary" @click="addOrUpdate">驗 證</el-button>
       </div>
     </el-dialog>
 
@@ -174,6 +174,10 @@ import hostApi from '@/api/host/host'
 export default {
   data() {
     return {
+      page: 1, // 当前页
+      limit: 10, // 每页记录数
+      total: 0, // 总记录数
+      hostInfoQuery: {}, // 条件封装对象
       hostInfo: {
         typeId: 1,
         hostname: '',
@@ -194,35 +198,68 @@ export default {
         label: 'WEB'
       }],
       value: '',
-
-      tableData: [{
-        type: 'Web服务',
-        hostname: 'web-01',
-        address: '10.7.117.181',
-        port: '2201',
-        remark: ''
-      }, {
-        type: 'Web服务',
-        hostname: 'web-03',
-        address: '10.7.117.182',
-        port: '2201',
-        remark: ''
-      }, {
-        type: 'Web服务',
-        hostname: 'web-02',
-        address: '10.7.117.183',
-        port: '2201',
-        remark: ''
-      }, {
-        type: 'Web服务',
-        hostname: 'web-04',
-        address: '10.7.117.184',
-        port: '2201',
-        remark: ''
-      }]
+      list: null
+      // list: [{
+      //   typeId: 1,
+      //   hostname: 'web-01',
+      //   ipAddress: '10.7.117.181',
+      //   port: '2201',
+      //   remark: ''
+      // }, {
+      //   typeId: 1,
+      //   hostname: 'web-03',
+      //   ipAddress: '10.7.117.182',
+      //   port: '2201',
+      //   remark: ''
+      // }, {
+      //   typeId: 1,
+      //   hostname: 'web-02',
+      //   ipAddress: '10.7.117.183',
+      //   port: '2201',
+      //   remark: ''
+      // }, {
+      //   typeId: 1,
+      //   hostname: 'web-04',
+      //   ipAddress: '10.7.117.184',
+      //   port: '2201',
+      //   remark: ''
+      // }]
     }
   },
+  created() {
+    // 在页面渲染之前执行，一般调用methods定义的方法
+    // 调用
+    this.getList()
+  },
   methods: {
+    // 创建具体的方法，调用teacher.js定义方法
+    // 讲师列表的方法
+    // 默认查第一页
+    getList(page = 1) {
+      this.page = page
+      hostApi
+        .getHostListPage(this.page, this.limit, this.hostInfoQuery)
+        .then((response) => {
+          // response接口返回的数据
+          // console.log(response)
+          this.list = response.data.rows
+          this.total = response.data.total
+          console.log(this.list)
+          console.log(this.total)
+        }) // 请求成功
+        .catch((error) => {
+          console.log(error)
+        }) // 请求失败
+    },
+    // 清空的方法
+    resetData() {
+      // 清空表单
+      // 表单输入项数据清空
+      this.hostInfoQuery = {}
+
+      // 查询所有讲师数据
+      this.getList
+    },
     // 添加主機方法
     addHost() {
       hostApi

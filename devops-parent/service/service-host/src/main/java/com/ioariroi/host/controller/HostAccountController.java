@@ -23,6 +23,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/host/host-account")
+@CrossOrigin  //解决跨域
 public class HostAccountController {
     @Autowired
     private HostAccountService hostAccountService;
