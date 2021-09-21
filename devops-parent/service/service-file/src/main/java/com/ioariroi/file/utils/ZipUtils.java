@@ -7,6 +7,7 @@ import jcifs.Configuration;
 import jcifs.config.PropertyConfiguration;
 import jcifs.context.BaseContext;
 import jcifs.smb.*;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
@@ -27,6 +28,7 @@ import java.util.zip.ZipOutputStream;
 
 import static com.ioariroi.file.utils.FileUtils.getAuth;
 
+@Slf4j
 @Component
 public class ZipUtils {
 
@@ -36,7 +38,7 @@ public class ZipUtils {
      * @author ysc
      */
 
-    private static final Logger log = LoggerFactory.getLogger(ZipUtils.class);
+//    private static final Logger log = LoggerFactory.getLogger(ZipUtils.class);
 
     public ZipUtils() {
     }

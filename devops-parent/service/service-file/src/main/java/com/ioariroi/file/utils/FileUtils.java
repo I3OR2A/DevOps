@@ -6,6 +6,7 @@ import jcifs.Configuration;
 import jcifs.config.PropertyConfiguration;
 import jcifs.context.BaseContext;
 import jcifs.smb.*;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +21,8 @@ import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
+
+@Slf4j
 @Component
 public class FileUtils {
     private static Logger logger = LoggerFactory.getLogger(FileUtils.class);

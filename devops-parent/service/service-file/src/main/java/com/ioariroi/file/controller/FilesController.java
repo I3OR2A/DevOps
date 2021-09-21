@@ -182,7 +182,7 @@ public class FilesController {
             FileUtils.removeDir(rmifile);
         } catch (CIFSException | MalformedURLException e) {
             e.printStackTrace();
-            return R.error().message("檔案刪除失敗");
+            return R.error().message("目錄刪除失敗");
         }
         return R.ok();
     }
