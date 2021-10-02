@@ -3,10 +3,13 @@ package com.ioariroi.file.utils;
 import org.apache.commons.net.ftp.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 import java.io.*;
+import java.util.*;
 
-public class FTPUtils {
+@Component
+public class FTPRefUtils {
 
     private final Logger LOGGER = LoggerFactory.getLogger(FTPRefUtils.class);
 
@@ -77,15 +80,13 @@ public class FTPUtils {
      */
     private FTPClient ftpClient;
 
-
-    private FTPUtils(String hostname, Integer port, String username, String password) {
+    private FTPRefUtils(String hostname, Integer port, String username, String password) {
         super();
         this.hostname = hostname;
         this.port = port;
         this.username = username;
         this.password = password;
     }
-
 
     /**
      * 设置下载时,文件名的编码
@@ -138,6 +139,18 @@ public class FTPUtils {
     }
 
     /**
+     * @param hostname FTPServer ip
+     * @param port     FTPServer 端口
+     * @param username 用户名
+     * @param password 密码
+     * @return FtpUtil实例
+     * @date 2018年9月26日 下午4:39:02
+     */
+    public static FTPRefUtils getFtpUtilInstance(String hostname, Integer port, String username, String password) {
+        return new FTPRefUtils(hostname, port, username, password);
+    }
+
+    /**
      * 初始化FTP服务器
      *
      * @throws IOException IO异常
@@ -182,7 +195,7 @@ public class FTPUtils {
          *      所以，如果是操作Windows下的FTP,操作失败时，可考虑将 此配置注释掉
          */
         // 由于apache不支持中文语言环境，通过定制类解析中文日期类型
-        ftpClient.configure(new FTPClientConfig("com.ioariroi.file.utils.UnixFTPEntryParser"));
+        ftpClient.configure(new FTPClientConfig("com.aspire.util.UnixFTPEntryParser"));
     }
 
     /**
@@ -285,6 +298,263 @@ public class FTPUtils {
     }
 
     /**
+     * downloadFile的升级版 -> 其功能如下:
+     * 1.remoteDirOrRemoteFile可为FTP上某一个文件的全路径名（绝对路径）
+     * -> 下载该文件,此处与downloadFile功能一致
+     * <p>
+     * 2.remoteDirOrRemoteFile可为FTP上某一个文件目录名
+     * -> 下载该目录下的所有文件、文件夹(包括该文件夹中的所有文件文件夹并以此类推)
+     * 注:对比downloadFile方法可知,downloadFile只能下载该目录下的所有文件,不能递归下载
+     *
+     * @date 2018年9月26日 下午7:26:22
+     */
+    public int recursiveDownloadFile(String remoteDirOrRemoteFile, String localDir) throws IOException {
+        remoteDirOrRemoteFile = handleRemoteDir(remoteDirOrRemoteFile);
+        int successSum = 0;
+        // remoteDirOrRemoteFile是一个明确的文件  还是  一个目录
+        if (remoteDirOrRemoteFile.contains(DOT_STR)) {
+            successSum = downloadFile(remoteDirOrRemoteFile, localDir);
+        } else {
+            /// 初步组装数据,调用递归方法;查询给定FTP目录以及其所有子孙目录,进而得到FTP目录与本地目录的对应关系Map
+            // 有序存放FTP remote文件夹路径
+            // 其实逻辑是:先往alreadyQueriedDirList里面存,再进行的查询。此处可以这么处理。
+            List<String> alreadyQueryDirList = new ArrayList<>(16);
+            alreadyQueryDirList.add(remoteDirOrRemoteFile);
+            // 有序存放FTP remote文件夹路径
+            List<String> requiredQueryDirList = new ArrayList<>(16);
+            requiredQueryDirList.add(remoteDirOrRemoteFile);
+            // 记录FTP目录与 本地目录对应关系
+            Map<String, String> storeDataMap = new HashMap<>(16);
+            storeDataMap.put(remoteDirOrRemoteFile, localDir);
+            queryFTPAllChildrenDirectory(storeDataMap, alreadyQueryDirList, requiredQueryDirList);
+            String tempPath;
+            // 循环调用downloadFile()方法,进行嵌套下载
+            for (String str : alreadyQueryDirList) {
+                // 将FTP用户的pwd的绝对路径转换为，用户输入的路径(因为 downloadFile方法会将用户输入的路径转化为pwd路径)
+                // 提示:用户刚登陆进FTP时，输入pwd,得到的不一定是"/"，有可能时FTP对应的Linux上的文件夹路径，
+                //     这与FTP的设置有关，可详见《程序员成长笔记(四)》搭建FTP服务器相关章节
+                tempPath = str.length() > userRootDir.length() ?
+                        str.substring(userRootDir.length()) :
+                        SEPARATOR_STR;
+                int thiscount = downloadFile(tempPath, storeDataMap.get(str));
+                successSum += thiscount;
+            }
+        }
+        System.out.println(" FtpUtil -> recursiveDownloadFile(excluded created directories) "
+                + " success download file total -> " + successSum);
+        return successSum;
+    }
+
+    /**
+     * 删除文件 或 删除空的文件夹
+     * 注:删除不存在的目录或文件  会导致删除失败
+     * 注: 出于保护措施，输入的“/”时，不可删除，直接返回false
+     *
+     * @param deletedBlankDirOrFile 要删除的文件的全路径名  或  要删除的空文件夹全路径名
+     *                              统一:路径分割符 用“/”,而不用“\”;
+     * @return 删除成功与否
+     * @throws IOException IO异常
+     * @date 2018年9月26日 下午9:12:07
+     */
+    public boolean deleteBlankDirOrFile(String deletedBlankDirOrFile) throws IOException {
+        if (deletedBlankDirOrFile == null || SEPARATOR_STR.equals(deletedBlankDirOrFile)) {
+            return false;
+        }
+        deletedBlankDirOrFile = handleRemoteDir(deletedBlankDirOrFile);
+        boolean flag;
+        initFtpClient();
+        // 根据remoteDirOrRemoteFile是文件还是目录,来切换changeWorkingDirectory
+        if (deletedBlankDirOrFile.lastIndexOf(DOT_STR) < 0) {
+            // 出于保护机制:如果当前文件夹中是空的,那么才能删除成功
+            flag = ftpClient.removeDirectory(deletedBlankDirOrFile);
+            // 不排除那些 没有后缀名的文件 存在的可能;
+            // 如果删除空文件夹失败,那么其可能是没有后缀名的文件,那么尝试着删除文件
+            if (!flag) {
+                flag = ftpClient.deleteFile(deletedBlankDirOrFile);
+            }
+            // 如果是文件,那么直接删除该文件
+        } else {
+            String tempWorkingDirectory;
+            int index = deletedBlankDirOrFile.lastIndexOf(SEPARATOR_STR);
+            if (index > 0) {
+                tempWorkingDirectory = deletedBlankDirOrFile.substring(0, index);
+            } else {
+                tempWorkingDirectory = SEPARATOR_STR;
+            }
+            // 切换至要下载的文件所在的目录,否者下载下来的文件大小为0
+            ftpClient.changeWorkingDirectory(tempWorkingDirectory);
+            flag = ftpClient.deleteFile(deletedBlankDirOrFile.substring(index + 1));
+        }
+        LOGGER.info(" FtpUtil -> deleteBlankDirOrFile [{}] boolean result is -> {}",
+                deletedBlankDirOrFile, flag);
+        return flag;
+    }
+
+    /**
+     * deleteBlankDirOrFile的加强版 -> 可删除文件、空文件夹、非空文件夹
+     * 注: 出于保护措施，输入的“/”时，不可删除，直接返回false
+     *
+     * @param deletedBlankDirOrFile 要删除的文件路径或文件夹
+     * @return 删除成功与否
+     * @throws IOException IO异常
+     * @date 2018年9月27日 上午1:25:16
+     */
+    public boolean recursiveDeleteBlankDirOrFile(String deletedBlankDirOrFile) throws IOException {
+        if (deletedBlankDirOrFile == null || SEPARATOR_STR.equals(deletedBlankDirOrFile)) {
+            return false;
+        }
+        String realDeletedBlankDirOrFile = handleRemoteDir(deletedBlankDirOrFile);
+        boolean result = true;
+        initFtpClient();
+        if (!destDirExist(realDeletedBlankDirOrFile)) {
+            LOGGER.info(" {} maybe is a  non-suffix file!, try delete!", realDeletedBlankDirOrFile);
+            boolean flag = deleteBlankDirOrFile(deletedBlankDirOrFile);
+            String flagIsTrue = " FtpUtil -> recursiveDeleteBlankDirOrFile "
+                    + realDeletedBlankDirOrFile + " -> success!";
+            String flagIsFalse = " FtpUtil -> recursiveDeleteBlankDirOrFile "
+                    + realDeletedBlankDirOrFile + " -> target file is not exist!";
+            LOGGER.info(flag ? flagIsTrue : flagIsFalse);
+            return true;
+        }
+        // remoteDirOrRemoteFile是一个明确的文件  还是  一个目录
+        if (realDeletedBlankDirOrFile.contains(DOT_STR) || !ftputilsChangeWorkingDirectory(realDeletedBlankDirOrFile)) {
+            result = deleteBlankDirOrFile(deletedBlankDirOrFile);
+        } else {
+            /// 初步组装数据,调用递归方法;查询给定FTP目录以及其所有子孙目录、子孙文件        (含其自身)
+            // 存放  文件夹路径
+            // 其实逻辑是:先往alreadyQueriedDirList里面存,再进行的查询。此处可以这么处理。
+            List<String> alreadyQueriedDirList = new ArrayList<>(16);
+            alreadyQueriedDirList.add(realDeletedBlankDirOrFile);
+            // 存放  文件路径
+            List<String> alreadyQueriedFileList = new ArrayList<>(16);
+            // 存放 文件夹路径
+            List<String> requiredQueryDirList = new ArrayList<>(16);
+            requiredQueryDirList.add(realDeletedBlankDirOrFile);
+            queryAllChildrenDirAndChildrenFile(alreadyQueriedDirList,
+                    alreadyQueriedFileList,
+                    requiredQueryDirList);
+            String tempPath;
+            // 循环调用deleteBlankDirOrFile()方法,删除文件
+            for (String filePath : alreadyQueriedFileList) {
+                tempPath = filePath.length() > userRootDir.length() ?
+                        filePath.substring(userRootDir.length()) :
+                        SEPARATOR_STR;
+                deleteBlankDirOrFile(tempPath);
+            }
+            // 对alreadyQueriedDirList进行排序,以保证等下删除时,先删除的空文件夹是 最下面的
+            String[] alreadyQueriedDirArray = new String[alreadyQueriedDirList.size()];
+            alreadyQueriedDirArray = alreadyQueriedDirList.toArray(alreadyQueriedDirArray);
+            sortArray(alreadyQueriedDirArray);
+            // 循环调用deleteBlankDirOrFile()方法,删除空的文件夹
+            for (String str : alreadyQueriedDirArray) {
+                tempPath = str.length() > userRootDir.length() ?
+                        str.substring(userRootDir.length()) :
+                        SEPARATOR_STR;
+                boolean isSuccess = deleteBlankDirOrFile(tempPath);
+                if (!isSuccess) {
+                    result = false;
+                }
+            }
+        }
+        LOGGER.info(" FtpUtil -> recursiveDeleteBlankDirOrFile {} boolean result is -> {}",
+                realDeletedBlankDirOrFile, result);
+        return result;
+    }
+
+    /**
+     * 根据数组元素的长度,来进行排序(字符串长的,排在前面)
+     * 数组元素不能为null
+     *
+     * @date 2018年9月27日 上午12:54:03
+     */
+    private void sortArray(String[] array) {
+        for (int i = 0; i < array.length - 1; i++) {
+            for (int j = 0; j < array.length - 1 - i; j++) {
+                if (array[j].length() - array[j + 1].length() < 0) {
+                    String flag = array[j];
+                    array[j] = array[j + 1];
+                    array[j + 1] = flag;
+                }
+            }
+        }
+    }
+
+    /**
+     * 根据给出的FTP目录、对应本地目录; 查询该FTP目录的所有子目录 , 以及获得与每一个子
+     * 目录对应的本地目录(含其自身以及与其自身对应的本地目录)
+     *
+     * @param storeDataMap          存储FTP目录与本地目录的对应关系;key -> FTP目录, value -> 与key对应的本地目录
+     * @param alreadyQueriedDirList 所有已经查询过了的FTP目录,即:key集合
+     * @param requiredQueryDirList  还需要查询的FTP目录
+     * @throws IOException IO异常
+     * @date 2018年9月26日 下午7:17:52
+     */
+    private void queryFTPAllChildrenDirectory(Map<String, String> storeDataMap,
+                                              List<String> alreadyQueriedDirList,
+                                              List<String> requiredQueryDirList) throws IOException {
+        List<String> newRequiredQueryDirList = new ArrayList<>(16);
+        if (requiredQueryDirList.size() == 0) {
+            return;
+        }
+        for (String str : requiredQueryDirList) {
+            String rootLocalDir = storeDataMap.get(str);
+            // 获取rootRemoteDir目录下所有 文件以及文件夹(或  获取指定的文件)
+            FTPFile[] ftpFiles = ftpClient.listFiles(str);
+            for (FTPFile file : ftpFiles) {
+                if (file.isDirectory()) {
+                    String tempName = file.getName();
+                    String ftpChildrenDir = str.endsWith(SEPARATOR_STR) ?
+                            str + tempName :
+                            str + SEPARATOR_STR + tempName;
+                    String localChildrenDir = rootLocalDir.endsWith(SEPARATOR_STR) ?
+                            rootLocalDir + tempName :
+                            rootLocalDir + SEPARATOR_STR + tempName;
+                    alreadyQueriedDirList.add(ftpChildrenDir);
+                    newRequiredQueryDirList.add(ftpChildrenDir);
+                    storeDataMap.put(ftpChildrenDir, localChildrenDir);
+                }
+            }
+        }
+        this.queryFTPAllChildrenDirectory(storeDataMap, alreadyQueriedDirList, newRequiredQueryDirList);
+    }
+
+    /**
+     * 根据给出的FTP目录,查询其所有子目录以及子文件(含其自身)
+     *
+     * @param alreadyQueriedDirList  所有已经查询出来了的目录
+     * @param alreadyQueriedFileList 所有已经查询出来了的文件
+     * @param requiredQueryDirList   还需要查询的FTP目录
+     * @throws IOException IO异常
+     * @date 2018年9月27日 上午12:12:53
+     */
+    private void queryAllChildrenDirAndChildrenFile(List<String> alreadyQueriedDirList,
+                                                    List<String> alreadyQueriedFileList,
+                                                    List<String> requiredQueryDirList) throws IOException {
+        List<String> newRequiredQueryDirList = new ArrayList<>(16);
+        if (requiredQueryDirList.size() == 0) {
+            return;
+        }
+        initFtpClient();
+        for (String dirPath : requiredQueryDirList) {
+            // 获取dirPath目录下所有 文件以及文件夹(或  获取指定的文件)
+            FTPFile[] ftpFiles = ftpClient.listFiles(dirPath);
+            for (FTPFile file : ftpFiles) {
+                String tempName = file.getName();
+                String ftpChildrenName = dirPath.endsWith(SEPARATOR_STR) ?
+                        dirPath + tempName :
+                        dirPath + SEPARATOR_STR + tempName;
+                if (file.isDirectory()) {
+                    alreadyQueriedDirList.add(ftpChildrenName);
+                    newRequiredQueryDirList.add(ftpChildrenName);
+                } else {
+                    alreadyQueriedFileList.add(ftpChildrenName);
+                }
+            }
+        }
+        this.queryAllChildrenDirAndChildrenFile(alreadyQueriedDirList, alreadyQueriedFileList, newRequiredQueryDirList);
+    }
+
+    /**
      * 创建指定目录(注:如果要创建的目录已经存在,那么返回false)
      *
      * @param dir 目录路径,绝对路径,如: /abc 或  /abc/ 可以
@@ -341,6 +611,41 @@ public class FTPUtils {
     }
 
     /**
+     * 避免在代码中频繁 initFtpClient、logout、disconnect;
+     * 这里包装一下FTPClient的.changeWorkingDirectory(String pathname)方法
+     *
+     * @param pathname 要切换(session)到FTP的哪一个目录下
+     * @date 2018年9月27日 上午11:24:25
+     */
+    private boolean ftputilsChangeWorkingDirectory(String pathname) throws IOException {
+        boolean result;
+        initFtpClient();
+        result = ftpClient.changeWorkingDirectory(pathname);
+        return result;
+    }
+
+    /**
+     * 判断FTP上某目录是否存在
+     *
+     * @param pathname 要判断的路径(文件名全路径、文件夹全路径都可以)
+     *                 注:此路径应从根目录开始
+     * @date 2018年9月27日 上午11:24:25
+     */
+    private boolean destDirExist(String pathname) throws IOException {
+        boolean result;
+        if (pathname.contains(DOT_STR)) {
+            int index = pathname.lastIndexOf(SEPARATOR_STR);
+            if (index != 0) {
+                pathname = pathname.substring(0, index);
+            } else {
+                return true;
+            }
+        }
+        result = ftpClient.changeWorkingDirectory(pathname);
+        return result;
+    }
+
+    /**
      * 处理用户输入的 FTP路径
      * 注:这主要是为了 兼容  FTP(对是否允许用户切换到上级目录)的设置
      *
@@ -361,8 +666,6 @@ public class FTPUtils {
         }
         return remoteDirOrFile;
     }
-
-
 
     /**
      * 下载 无后缀名的文件
@@ -445,5 +748,3 @@ public class FTPUtils {
         ftpClient = null;
     }
 }
-
-

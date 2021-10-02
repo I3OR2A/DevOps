@@ -1,27 +1,12 @@
 package com.ioariroi.file.controller;
 
 import com.ioariroi.commonutils.R;
-import com.ioariroi.file.entity.SmbEntity;
-import com.ioariroi.file.utils.FTPUtils;
-import com.ioariroi.file.utils.FileUtils;
-import jcifs.CIFSException;
-import jcifs.smb.SmbFile;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.net.ftp.FTPClient;
-import org.apache.commons.net.ftp.FTPFile;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
-
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.MalformedURLException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
 
 @CrossOrigin //跨域
 @RestController
